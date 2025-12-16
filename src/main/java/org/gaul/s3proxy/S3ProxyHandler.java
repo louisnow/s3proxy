@@ -2360,8 +2360,17 @@ public class S3ProxyHandler {
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
             metadata = blobStore.blobMetadata(containerName, uploadId);
-            BlobAccess access = blobStore.getBlobAccess(containerName,
-                    uploadId);
+            BlobAccess access;
+            try {
+                access = blobStore.getBlobAccess(containerName, uploadId);
+            } catch (RuntimeException e) {
+                // GCS with uniform bucket-level access does not support
+                // object ACLs. Default to PRIVATE, consistent with
+                // initiate multipart upload behavior.
+                logger.debug("getBlobAccess failed, defaulting to PRIVATE: {}",
+                        e.getMessage());
+                access = BlobAccess.PRIVATE;
+            }
             options = new PutOptions().setBlobAccess(access);
         } else {
             metadata = new MutableBlobMetadataImpl();
