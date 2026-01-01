@@ -301,6 +301,11 @@ public class S3ProxyHandler {
         return blobStore.getContext().unwrap().getProviderMetadata().getId();
     }
 
+    private static boolean isGoogleCloudStorageProvider(String blobStoreType) {
+        return blobStoreType.equals("google-cloud-storage") ||
+               blobStoreType.equals("gcs-sdk");
+    }
+
     private static boolean isValidContainer(String containerName) {
         if (containerName == null ||
                 containerName.length() < 3 || containerName.length() > 255 ||
@@ -2485,8 +2490,7 @@ public class S3ProxyHandler {
                 }
                 parts.addAll(partsMap.values());
             }
-        } else if (blobStoreType.equals("google-cloud-storage") ||
-                   blobStoreType.equals("gcs-sdk")) {
+        } else if (isGoogleCloudStorageProvider(blobStoreType)) {
             // GCS only supports 32 parts but we can support up to 1024 by
             // recursively combining objects.
             for (int partNumber = 1;; ++partNumber) {
@@ -2836,7 +2840,7 @@ public class S3ProxyHandler {
 
         // GCS only supports 32 parts so partition MPU into 32-part chunks.
         String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("google-cloud-storage")) {
+        if (isGoogleCloudStorageProvider(blobStoreType)) {
             // fix up 1-based part numbers
             uploadId = String.format(
                     "%s_%08d", uploadId, ((partNumber - 1) / 32) + 1);
@@ -3026,7 +3030,7 @@ public class S3ProxyHandler {
 
         // GCS only supports 32 parts so partition MPU into 32-part chunks.
         String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("google-cloud-storage")) {
+        if (isGoogleCloudStorageProvider(blobStoreType)) {
             // fix up 1-based part numbers
             uploadId = String.format(
                     "%s_%08d", uploadId, ((partNumber - 1) / 32) + 1);
