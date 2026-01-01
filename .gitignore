@@ -1,6 +1,7 @@
 s3proxy.iml
 .idea/
-
+.beads
+AGENTS.md
 # Eclipse project configuration files
 .classpath
 .project

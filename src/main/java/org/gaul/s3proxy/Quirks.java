@@ -24,6 +24,7 @@ final class Quirks {
             "azureblob",
             "azureblob-sdk",
             "b2",
+            "gcs-sdk",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
             "openstack-swift"
@@ -33,7 +34,6 @@ final class Quirks {
     static final Set<String> NO_CACHE_CONTROL_SUPPORT = Set.of(
             "atmos",
             "b2",
-            "google-cloud-storage",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
             "openstack-swift"
@@ -46,8 +46,7 @@ final class Quirks {
 
     /** Blobstores which do not support the Content-Encoding header. */
     static final Set<String> NO_CONTENT_ENCODING = Set.of(
-            "b2",
-            "google-cloud-storage"
+            "b2"
     );
 
     /** Blobstores which do not support the Content-Language header. */
@@ -92,8 +91,9 @@ final class Quirks {
      * require it during complete multipart.  Emulate the former in the latter
      * by storing and retrieving a stub object.
      *
-     * Note: azureblob-sdk also uses stubs for multipart uploads but handles
-     * this internally in AzureBlobStore rather than in S3ProxyHandler.
+     * Note: azureblob-sdk and gcs-sdk also use stubs for multipart uploads but
+     * handle this internally in their BlobStore implementations rather than
+     * in S3ProxyHandler.
      */
     static final Set<String> MULTIPART_REQUIRES_STUB = Set.of(
             "azureblob",
@@ -110,6 +110,7 @@ final class Quirks {
             "azureblob",
             "azureblob-sdk",
             "b2",
+            "gcs-sdk",
             "google-cloud-storage"
     );
 
@@ -119,6 +120,7 @@ final class Quirks {
             "azureblob-sdk",
             // S3 marker means one past this token while B2 means this token
             "b2",
+            "gcs-sdk",
             "google-cloud-storage"
     );
 

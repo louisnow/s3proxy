@@ -573,7 +573,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
                 mpu = MultipartUpload.create(mpu.containerName(),
                     mpu.blobName(), uploadId, mpu.blobMetadata(), options);
-            } else if (getBlobStoreType().equals("google-cloud-storage")) {
+            } else if (getBlobStoreType().equals("google-cloud-storage") ||
+                       getBlobStoreType().equals("gcs-sdk")) {
                 mbm.getUserMetadata()
                     .put(Constants.METADATA_MULTIPART_KEY, mbm.getName());
 
@@ -603,7 +604,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         List<MultipartUpload> mpus = new ArrayList<>();
 
         // emulate list of multipart uploads on gcp
-        if (getBlobStoreType().equals("google-cloud-storage")) {
+        if (getBlobStoreType().equals("google-cloud-storage") ||
+            getBlobStoreType().equals("gcs-sdk")) {
             var options = new ListContainerOptions();
             PageSet<? extends StorageMetadata> mpuList =
                 delegate().list(container,
@@ -717,7 +719,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         // always set .s3enc suffix except on gcp
         // and blob name starts with multipart upload id
-        if (getBlobStoreType().equals("google-cloud-storage") &&
+        if ((getBlobStoreType().equals("google-cloud-storage") ||
+             getBlobStoreType().equals("gcs-sdk")) &&
             mpu.blobName().startsWith(mpu.id())) {
             logger.debug("skip suffix on gcp");
         } else {
@@ -736,7 +739,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             long partCount = parts.size();
 
             // special handling for GCP to sum up all parts
-            if (getBlobStoreType().equals("google-cloud-storage")) {
+            if (getBlobStoreType().equals("google-cloud-storage") ||
+                getBlobStoreType().equals("gcs-sdk")) {
                 partCount = 0;
                 for (MultipartPart part : parts) {
                     blobName =
@@ -766,7 +770,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         String eTag = delegate().completeMultipartUpload(mpuWithSuffix, parts);
 
         // cleanup mpu placeholder on gcp
-        if (getBlobStoreType().equals("google-cloud-storage")) {
+        if (getBlobStoreType().equals("google-cloud-storage") ||
+            getBlobStoreType().equals("gcs-sdk")) {
             delegate().removeBlob(mpu.containerName(),
                 Constants.MPU_FOLDER + mpu.id());
         }

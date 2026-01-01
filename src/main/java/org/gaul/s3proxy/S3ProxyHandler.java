@@ -2078,11 +2078,12 @@ public class S3ProxyHandler {
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         String blobStoreType = getBlobStoreType(blobStore);
 
-        // Azure only supports If-None-Match: *, not If-Match: *
-        // Handle If-Match: * manually for the azureblob-sdk provider.
+        // Azure/GCS only supports If-None-Match: *, not If-Match: *
+        // Handle If-Match: * manually for the azureblob-sdk/gcs-sdk providers.
         // Note: this is a non-atomic operation (HEAD then PUT).
         if (ifMatch != null && ifMatch.equals("*") &&
-                blobStoreType.equals("azureblob-sdk")) {
+                (blobStoreType.equals("azureblob-sdk") ||
+                 blobStoreType.equals("gcs-sdk"))) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (metadata == null) {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
@@ -2093,7 +2094,8 @@ public class S3ProxyHandler {
         // Emulate conditional put for backends without native support.
         // Note: this is a non-atomic operation (HEAD then PUT).
         if ((ifMatch != null || ifNoneMatch != null) &&
-                !blobStoreType.equals("azureblob-sdk")) {
+                !blobStoreType.equals("azureblob-sdk") &&
+                !blobStoreType.equals("gcs-sdk")) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (ifMatch != null) {
                 if (ifMatch.equals("*")) {
@@ -2370,11 +2372,12 @@ public class S3ProxyHandler {
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         String blobStoreType = getBlobStoreType(blobStore);
 
-        // Azure only supports If-None-Match: *, not If-Match: *
-        // Handle If-Match: * manually for the azureblob-sdk provider.
+        // Azure/GCS only supports If-None-Match: *, not If-Match: *
+        // Handle If-Match: * manually for the azureblob-sdk/gcs-sdk providers.
         // Note: this is a non-atomic operation (HEAD then PUT).
         if (ifMatch != null && ifMatch.equals("*") &&
-                blobStoreType.equals("azureblob-sdk")) {
+                (blobStoreType.equals("azureblob-sdk") ||
+                 blobStoreType.equals("gcs-sdk"))) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (metadata == null) {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
@@ -2482,7 +2485,8 @@ public class S3ProxyHandler {
                 }
                 parts.addAll(partsMap.values());
             }
-        } else if (blobStoreType.equals("google-cloud-storage")) {
+        } else if (blobStoreType.equals("google-cloud-storage") ||
+                   blobStoreType.equals("gcs-sdk")) {
             // GCS only supports 32 parts but we can support up to 1024 by
             // recursively combining objects.
             for (int partNumber = 1;; ++partNumber) {
