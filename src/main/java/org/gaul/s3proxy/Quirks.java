@@ -35,7 +35,6 @@ final class Quirks {
             "atmos",
             "b2",
             "google-cloud-storage",
-            "google-cloud-storage-sdk",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
             "openstack-swift"

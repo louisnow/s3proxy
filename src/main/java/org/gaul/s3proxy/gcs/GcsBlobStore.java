@@ -34,7 +34,6 @@ import java.util.UUID;
 import javax.annotation.Nullable;
 
 import com.google.auth.oauth2.GoogleCredentials;
-import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.storage.Blob;
@@ -142,9 +141,11 @@ public final class GcsBlobStore extends BaseBlobStore {
         // Configure authentication
         if (credential.credential != null && !credential.credential.isEmpty()) {
             // Credential should be JSON content (Main.java reads file if path)
+            // Use GoogleCredentials.fromStream() to support both service account
+            // and authorized_user (ADC) credential types
             try {
                 GoogleCredentials credentials =
-                        ServiceAccountCredentials.fromStream(
+                        GoogleCredentials.fromStream(
                                 new ByteArrayInputStream(
                                         credential.credential.getBytes(
                                                 StandardCharsets.UTF_8)));
