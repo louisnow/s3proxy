@@ -24,6 +24,7 @@ final class Quirks {
             "azureblob",
             "azureblob-sdk",
             "b2",
+            "google-cloud-storage-sdk",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
             "openstack-swift"
@@ -34,6 +35,7 @@ final class Quirks {
             "atmos",
             "b2",
             "google-cloud-storage",
+            "google-cloud-storage-sdk",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
             "openstack-swift"
@@ -47,7 +49,8 @@ final class Quirks {
     /** Blobstores which do not support the Content-Encoding header. */
     static final Set<String> NO_CONTENT_ENCODING = Set.of(
             "b2",
-            "google-cloud-storage"
+            "google-cloud-storage",
+            "google-cloud-storage-sdk"
     );
 
     /** Blobstores which do not support the Content-Language header. */
@@ -94,12 +97,15 @@ final class Quirks {
      *
      * Note: azureblob-sdk also uses stubs for multipart uploads but handles
      * this internally in AzureBlobStore rather than in S3ProxyHandler.
+     * google-cloud-storage-sdk handles stubs internally like azureblob-sdk,
+     * but uses this quirk to skip the Azure-specific part handling.
      */
     static final Set<String> MULTIPART_REQUIRES_STUB = Set.of(
             "azureblob",
             "filesystem",
             "filesystem-nio2",
             "google-cloud-storage",
+            "google-cloud-storage-sdk",
             "openstack-swift",
             "transient",
             "transient-nio2"
@@ -110,7 +116,8 @@ final class Quirks {
             "azureblob",
             "azureblob-sdk",
             "b2",
-            "google-cloud-storage"
+            "google-cloud-storage",
+            "google-cloud-storage-sdk"
     );
 
     /** Blobstores with opaque markers. */
@@ -119,7 +126,8 @@ final class Quirks {
             "azureblob-sdk",
             // S3 marker means one past this token while B2 means this token
             "b2",
-            "google-cloud-storage"
+            "google-cloud-storage",
+            "google-cloud-storage-sdk"
     );
 
     private Quirks() {

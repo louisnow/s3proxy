@@ -165,11 +165,15 @@ final class TestUtils {
                 Constants.PROPERTY_IDENTITY);
         String credential = info.getProperties().getProperty(
                 Constants.PROPERTY_CREDENTIAL);
-        if (provider.equals("google-cloud-storage")) {
-            var path = FileSystems.getDefault().getPath(credential);
-            if (Files.exists(path)) {
-                credential = MoreFiles.asCharSource(path,
-                        StandardCharsets.UTF_8).read();
+        if (provider.equals("google-cloud-storage") ||
+                provider.equals("google-cloud-storage-sdk")) {
+            // Only read from file if credential is a non-empty path
+            if (credential != null && !credential.isEmpty()) {
+                var path = FileSystems.getDefault().getPath(credential);
+                if (Files.exists(path) && Files.isRegularFile(path)) {
+                    credential = MoreFiles.asCharSource(path,
+                            StandardCharsets.UTF_8).read();
+                }
             }
             info.getProperties().remove(Constants.PROPERTY_CREDENTIAL);
         }

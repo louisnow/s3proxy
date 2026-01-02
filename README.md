@@ -78,7 +78,8 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 * b2
 * filesystem (on-disk storage, deprecated)
 * filesystem-nio2 (on-disk storage, recommended)
-* google-cloud-storage
+* google-cloud-storage (deprecated)
+* google-cloud-storage-sdk (recommended, supports uniform bucket-level access)
 * openstack-swift
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
 * s3 (all implementations)
@@ -141,7 +142,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 
 S3Proxy emulates the following operations:
 
-* conditional PUT object when using If-Match or If-None-Match, unless the `azureblob-sdk` provider is used
+* conditional PUT object when using If-Match or If-None-Match, unless the `azureblob-sdk` or `google-cloud-storage-sdk` provider is used
 * copy multi-part objects, see [#76](https://github.com/gaul/s3proxy/issues/76)
 
 S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties

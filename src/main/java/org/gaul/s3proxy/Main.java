@@ -388,7 +388,8 @@ public final class Main {
             // local blobstores do not require credentials
             identity = Strings.nullToEmpty(identity);
             credential = Strings.nullToEmpty(credential);
-        } else if (provider.equals("google-cloud-storage")) {
+        } else if (provider.equals("google-cloud-storage") ||
+                provider.equals("google-cloud-storage-sdk")) {
             var path = FileSystems.getDefault().getPath(credential);
             if (Files.exists(path)) {
                 credential = MoreFiles.asCharSource(path,
