@@ -44,7 +44,6 @@ import com.google.cloud.storage.Bucket;
 import com.google.cloud.storage.BucketInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobListOption;
-import com.google.cloud.storage.Storage.BlobSourceOption;
 import com.google.cloud.storage.Storage.BlobTargetOption;
 import com.google.cloud.storage.Storage.ComposeRequest;
 import com.google.cloud.storage.Storage.CopyRequest;
@@ -142,22 +141,13 @@ public final class GcsBlobStore extends BaseBlobStore {
 
         // Configure authentication
         if (credential.credential != null && !credential.credential.isEmpty()) {
+            // Credential should be JSON content (Main.java reads file if path)
             try {
-                GoogleCredentials credentials;
-                // Check if credential is a file path or JSON content
-                if (credential.credential.trim().startsWith("{")) {
-                    // JSON content
-                    credentials = ServiceAccountCredentials.fromStream(
-                            new ByteArrayInputStream(
-                                    credential.credential.getBytes(
-                                            StandardCharsets.UTF_8)));
-                } else {
-                    // Assume it's already been read as JSON content by Main.java
-                    credentials = ServiceAccountCredentials.fromStream(
-                            new ByteArrayInputStream(
-                                    credential.credential.getBytes(
-                                            StandardCharsets.UTF_8)));
-                }
+                GoogleCredentials credentials =
+                        ServiceAccountCredentials.fromStream(
+                                new ByteArrayInputStream(
+                                        credential.credential.getBytes(
+                                                StandardCharsets.UTF_8)));
                 optionsBuilder.setCredentials(credentials);
             } catch (IOException e) {
                 throw new RuntimeException(
@@ -337,23 +327,6 @@ public final class GcsBlobStore extends BaseBlobStore {
             String key, GetOptions options) {
         BlobId blobId = BlobId.of(container, key);
 
-        List<BlobSourceOption> sourceOptions = new ArrayList<>();
-        if (options.getIfMatch() != null) {
-            sourceOptions.add(BlobSourceOption.generationMatch(
-                    parseGeneration(options.getIfMatch())));
-        }
-        if (options.getIfNoneMatch() != null) {
-            sourceOptions.add(BlobSourceOption.generationNotMatch(
-                    parseGeneration(options.getIfNoneMatch())));
-        }
-        if (options.getIfModifiedSince() != null) {
-            // GCS doesn't directly support If-Modified-Since on GET,
-            // but we can check after fetching
-        }
-        if (options.getIfUnmodifiedSince() != null) {
-            // GCS doesn't directly support If-Unmodified-Since on GET
-        }
-
         Blob gcsBlob;
         try {
             gcsBlob = storage.get(blobId);
@@ -364,6 +337,42 @@ public final class GcsBlobStore extends BaseBlobStore {
 
         if (gcsBlob == null) {
             throw new KeyNotFoundException(container, key, "Blob not found");
+        }
+
+        // Handle conditional GET (If-Match/If-None-Match) using ETag comparison
+        // GCS uses generation numbers, not ETags, so we handle this manually
+        String blobEtag = gcsBlob.getEtag();
+        if (options.getIfMatch() != null) {
+            String ifMatch = options.getIfMatch().replace("\"", "");
+            if (blobEtag != null && !blobEtag.equals(ifMatch)) {
+                // ETag doesn't match - precondition failed
+                var request = HttpRequest.builder()
+                        .method("GET")
+                        .endpoint("https://storage.googleapis.com")
+                        .build();
+                var response = HttpResponse.builder()
+                        .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
+                        .build();
+                throw new HttpResponseException(
+                        new HttpCommand(request), response,
+                        "If-Match condition failed");
+            }
+        }
+        if (options.getIfNoneMatch() != null) {
+            String ifNoneMatch = options.getIfNoneMatch().replace("\"", "");
+            if (blobEtag != null && blobEtag.equals(ifNoneMatch)) {
+                // ETag matches - throw 304 Not Modified
+                var request = HttpRequest.builder()
+                        .method("GET")
+                        .endpoint("https://storage.googleapis.com")
+                        .build();
+                var response = HttpResponse.builder()
+                        .statusCode(Status.NOT_MODIFIED.getStatusCode())
+                        .build();
+                throw new HttpResponseException(
+                        new HttpCommand(request), response,
+                        "If-None-Match condition met");
+            }
         }
 
         // Handle range requests
