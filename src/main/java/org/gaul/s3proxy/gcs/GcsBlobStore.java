@@ -19,8 +19,10 @@ package org.gaul.s3proxy.gcs;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
+
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -36,6 +38,7 @@ import javax.annotation.Nullable;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.ReadChannel;
+import com.google.cloud.WriteChannel;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -111,6 +114,14 @@ public final class GcsBlobStore extends BaseBlobStore {
     private static final int GCS_COMPOSE_LIMIT = 32;
     // Maximum number of parts supported (can compose in stages)
     private static final int MAX_PARTS = 10000;
+
+    // Streaming upload chunk size for multipart parts.
+    // 8 MiB is the GCS recommended minimum for resumable uploads.
+    // Larger chunks = fewer HTTP requests = faster uploads, but more memory.
+    // References:
+    // - https://cloud.google.com/storage/docs/resumable-uploads
+    // - https://github.com/googleapis/google-cloud-cpp/issues/2657
+    private static final int UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024;
 
     private final Storage storage;
     private final String projectId;
@@ -991,31 +1002,39 @@ public final class GcsBlobStore extends BaseBlobStore {
         String uploadId = mpu.id();
         String partKey = MULTIPART_PREFIX + uploadId + "/" + partNumber;
 
+        // Verify Content-MD5 if provided before upload
+        var providedMd5 = payload.getContentMetadata().getContentMD5AsHashCode();
+
+        // Stream upload in chunks to avoid loading entire part into memory.
+        // We compute MD5 hash while streaming for verification and ETag.
+        BlobInfo partInfo = BlobInfo.newBuilder(container, partKey).build();
         byte[] md5Hash;
-        try (var is = payload.openStream();
-             var his = new HashingInputStream(MD5, is)) {
-            byte[] content = his.readAllBytes();
-            md5Hash = his.hash().asBytes();
-
-            // Verify Content-MD5 if provided
-            var providedMd5 = payload.getContentMetadata()
-                    .getContentMD5AsHashCode();
-            if (providedMd5 != null) {
-                if (!MessageDigest.isEqual(md5Hash, providedMd5.asBytes())) {
-                    throw new IllegalArgumentException("Content-MD5 mismatch");
-                }
+        try (var his = new HashingInputStream(MD5, payload.openStream());
+             WriteChannel writer = storage.writer(partInfo)) {
+            byte[] buffer = new byte[UPLOAD_CHUNK_SIZE];
+            int bytesRead;
+            while ((bytesRead = his.read(buffer)) != -1) {
+                writer.write(ByteBuffer.wrap(buffer, 0, bytesRead));
             }
-
-            BlobInfo partInfo = BlobInfo.newBuilder(container, partKey)
-                    .setMd5(Base64.getEncoder().encodeToString(md5Hash))
-                    .build();
-            storage.create(partInfo, content);
-
+            md5Hash = his.hash().asBytes();
         } catch (StorageException se) {
             translateAndRethrowException(se, container, partKey);
             throw new RuntimeException("Failed to upload part " + partNumber, se);
         } catch (IOException ioe) {
             throw new RuntimeException("Failed to upload part " + partNumber, ioe);
+        }
+
+        // Verify Content-MD5 after upload if provided
+        if (providedMd5 != null) {
+            if (!MessageDigest.isEqual(md5Hash, providedMd5.asBytes())) {
+                // Delete the uploaded part since MD5 doesn't match
+                try {
+                    storage.delete(BlobId.of(container, partKey));
+                } catch (StorageException ignored) {
+                    // Best effort cleanup
+                }
+                throw new IllegalArgumentException("Content-MD5 mismatch");
+            }
         }
 
         String eTag = BaseEncoding.base16().lowerCase().encode(md5Hash);
