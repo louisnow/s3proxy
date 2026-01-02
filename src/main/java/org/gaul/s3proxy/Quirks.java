@@ -48,8 +48,7 @@ final class Quirks {
     /** Blobstores which do not support the Content-Encoding header. */
     static final Set<String> NO_CONTENT_ENCODING = Set.of(
             "b2",
-            "google-cloud-storage",
-            "google-cloud-storage-sdk"
+            "google-cloud-storage"
     );
 
     /** Blobstores which do not support the Content-Language header. */

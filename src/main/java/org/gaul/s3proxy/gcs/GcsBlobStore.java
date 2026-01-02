@@ -422,7 +422,7 @@ public final class GcsBlobStore extends BaseBlobStore {
                 .userMetadata(gcsBlob.getMetadata() != null ?
                         gcsBlob.getMetadata() : Map.of())
                 .payload(inputStream)
-                .cacheControl(gcsBlob.getCacheControl())
+                .cacheControl(stripNoTransform(gcsBlob.getCacheControl()))
                 .contentDisposition(gcsBlob.getContentDisposition())
                 .contentEncoding(gcsBlob.getContentEncoding())
                 .contentLanguage(gcsBlob.getContentLanguage())
@@ -457,15 +457,24 @@ public final class GcsBlobStore extends BaseBlobStore {
         BlobInfo.Builder blobInfo = BlobInfo.newBuilder(container, key);
 
         var contentMetadata = blob.getMetadata().getContentMetadata();
-        if (contentMetadata.getCacheControl() != null) {
-            blobInfo.setCacheControl(contentMetadata.getCacheControl());
+        String cacheControl = contentMetadata.getCacheControl();
+        String contentEncoding = contentMetadata.getContentEncoding();
+
+        // When Content-Encoding is set, add no-transform to Cache-Control
+        // to prevent GCS from trying to decompress content on download.
+        // This matches S3's behavior which never transforms content.
+        if (contentEncoding != null) {
+            cacheControl = addNoTransform(cacheControl);
+        }
+        if (cacheControl != null) {
+            blobInfo.setCacheControl(cacheControl);
         }
         if (contentMetadata.getContentDisposition() != null) {
             blobInfo.setContentDisposition(
                     contentMetadata.getContentDisposition());
         }
-        if (contentMetadata.getContentEncoding() != null) {
-            blobInfo.setContentEncoding(contentMetadata.getContentEncoding());
+        if (contentEncoding != null) {
+            blobInfo.setContentEncoding(contentEncoding);
         }
         if (contentMetadata.getContentLanguage() != null) {
             blobInfo.setContentLanguage(contentMetadata.getContentLanguage());
@@ -536,17 +545,22 @@ public final class GcsBlobStore extends BaseBlobStore {
             BlobInfo.Builder targetInfo = BlobInfo.newBuilder(target);
 
             if (contentMetadata != null) {
-                if (contentMetadata.getCacheControl() != null) {
-                    targetInfo.setCacheControl(
-                            contentMetadata.getCacheControl());
+                String cacheControl = contentMetadata.getCacheControl();
+                String contentEncoding = contentMetadata.getContentEncoding();
+
+                // Add no-transform when Content-Encoding is set
+                if (contentEncoding != null) {
+                    cacheControl = addNoTransform(cacheControl);
+                }
+                if (cacheControl != null) {
+                    targetInfo.setCacheControl(cacheControl);
                 }
                 if (contentMetadata.getContentDisposition() != null) {
                     targetInfo.setContentDisposition(
                             contentMetadata.getContentDisposition());
                 }
-                if (contentMetadata.getContentEncoding() != null) {
-                    targetInfo.setContentEncoding(
-                            contentMetadata.getContentEncoding());
+                if (contentEncoding != null) {
+                    targetInfo.setContentEncoding(contentEncoding);
                 }
                 if (contentMetadata.getContentLanguage() != null) {
                     targetInfo.setContentLanguage(
@@ -851,6 +865,11 @@ public final class GcsBlobStore extends BaseBlobStore {
             com.google.cloud.storage.StorageClass storageClass,
             PutOptions options) {
 
+        // Add no-transform when Content-Encoding is set to match S3 behavior
+        if (contentEncoding != null) {
+            cacheControl = addNoTransform(cacheControl);
+        }
+
         // Handle conditional writes
         List<BlobTargetOption> targetOptions = new ArrayList<>();
         if (options instanceof PutOptions2) {
@@ -1119,10 +1138,62 @@ public final class GcsBlobStore extends BaseBlobStore {
         };
     }
 
+    // ========== Content-Encoding / Cache-Control Transform Helpers ==========
+    //
+    // GCS and S3 differ in how they handle Content-Encoding on download:
+    //
+    // - S3: Returns content as-is with Content-Encoding header intact.
+    //       Client is responsible for decompression.
+    //
+    // - GCS: Transparently decompresses content when Content-Encoding is set
+    //        and client doesn't send Accept-Encoding: gzip. This causes failures
+    //        if content isn't actually compressed.
+    //
+    // To match S3 behavior, we add "no-transform" to Cache-Control when
+    // Content-Encoding is set. This directive tells GCS to serve content as-is.
+    // We strip it on read so users see only what they originally set.
+    //
+    // References:
+    // - GCS transcoding: https://cloud.google.com/storage/docs/transcoding
+    // - S3 doesn't decompress: https://github.com/aws/aws-sdk-go-v2/issues/2848
+    // - no-transform directive: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control#no-transform
+
+    /**
+     * Adds "no-transform" to Cache-Control if not already present.
+     * This prevents GCS from transparently decompressing content on download.
+     */
+    private static String addNoTransform(String cacheControl) {
+        if (cacheControl == null || cacheControl.isEmpty()) {
+            return "no-transform";
+        }
+        if (cacheControl.toLowerCase().contains("no-transform")) {
+            return cacheControl;
+        }
+        return cacheControl + ", no-transform";
+    }
+
+    /**
+     * Strips "no-transform" that we added, so users see only what they set.
+     */
+    private static String stripNoTransform(String cacheControl) {
+        if (cacheControl == null || cacheControl.isEmpty()) {
+            return null;
+        }
+        // Handle "no-transform" by itself
+        if (cacheControl.equalsIgnoreCase("no-transform")) {
+            return null;
+        }
+        // Handle ", no-transform" suffix (what we add)
+        String result = cacheControl.replaceAll("(?i),\\s*no-transform$", "");
+        // Handle "no-transform, " prefix (just in case)
+        result = result.replaceAll("(?i)^no-transform,\\s*", "");
+        return result.isEmpty() ? null : result;
+    }
+
     private static ContentMetadata toContentMetadata(Blob blob) {
         Long size = blob.getSize();
         return ContentMetadataBuilder.create()
-                .cacheControl(blob.getCacheControl())
+                .cacheControl(stripNoTransform(blob.getCacheControl()))
                 .contentDisposition(blob.getContentDisposition())
                 .contentEncoding(blob.getContentEncoding())
                 .contentLanguage(blob.getContentLanguage())
