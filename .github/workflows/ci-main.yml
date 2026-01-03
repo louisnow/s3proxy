@@ -114,6 +114,24 @@ jobs:
           # TODO: run other test classes
           mvn test -Ds3proxy.test.conf=s3proxy-localstack.conf -Dtest=AwsSdkTest
 
+      - name: Start fake-gcs-server
+        run: |
+          docker run -d --name fake-gcs -p 4443:4443 fsouza/fake-gcs-server -scheme http
+          # Wait for fake-gcs-server to be ready
+          for i in $(seq 30); do
+            if curl -s http://127.0.0.1:4443/storage/v1/b 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+      - name: Maven Test with fake-gcs-server
+        # Known failures: fake-gcs-server doesn't preserve object metadata
+        # See: https://github.com/fsouza/fake-gcs-server/issues/2102
+        continue-on-error: true
+        run: |
+          # TODO: run other test classes
+          mvn test -Ds3proxy.test.conf=s3proxy-fake-gcs.conf -Dtest=AwsSdkTest
+
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
@@ -132,6 +150,7 @@ jobs:
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-localstack.conf
           docker stop localstack
+          docker stop fake-gcs
 
       #Store the target
       - uses: actions/upload-artifact@v6
