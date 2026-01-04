@@ -22,7 +22,6 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
-
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -36,6 +35,8 @@ import java.util.UUID;
 import javax.annotation.Nullable;
 
 import com.google.auth.oauth2.GoogleCredentials;
+import com.google.auth.oauth2.ServiceAccountCredentials;
+import com.google.auth.oauth2.UserCredentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.WriteChannel;
@@ -51,6 +52,7 @@ import com.google.cloud.storage.Storage.ComposeRequest;
 import com.google.cloud.storage.Storage.CopyRequest;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -60,6 +62,8 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.HttpHeaders;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
@@ -152,14 +156,9 @@ public final class GcsBlobStore extends BaseBlobStore {
         // Configure authentication
         if (credential.credential != null && !credential.credential.isEmpty()) {
             // Credential should be JSON content (Main.java reads file if path)
-            // Use GoogleCredentials.fromStream() to support both service account
-            // and authorized_user (ADC) credential types
             try {
                 GoogleCredentials credentials =
-                        GoogleCredentials.fromStream(
-                                new ByteArrayInputStream(
-                                        credential.credential.getBytes(
-                                                StandardCharsets.UTF_8)));
+                        loadCredentials(credential.credential);
                 optionsBuilder.setCredentials(credentials);
             } catch (IOException e) {
                 throw new RuntimeException(
@@ -172,6 +171,41 @@ public final class GcsBlobStore extends BaseBlobStore {
         // If no credential and no endpoint, use Application Default Credentials
 
         this.storage = optionsBuilder.build().getService();
+    }
+
+    /**
+     * Load credentials from JSON string using type-specific methods.
+     * This avoids security risks from the generic GoogleCredentials.fromStream()
+     * which could load unexpected credential types. 
+     * See https://github.com/googleapis/java-storage/pull/3339
+     *
+     * @param jsonCredential JSON string containing the credential
+     * @return GoogleCredentials of the appropriate type
+     * @throws IOException if the credential cannot be parsed or has unknown type
+     */
+    private static GoogleCredentials loadCredentials(String jsonCredential)
+            throws IOException {
+        // Parse JSON to determine the credential type
+        JsonObject json = JsonParser.parseString(jsonCredential)
+                .getAsJsonObject();
+        String type = json.has("type") ?
+                json.get("type").getAsString() : null;
+
+        var credentialStream = new ByteArrayInputStream(
+                jsonCredential.getBytes(StandardCharsets.UTF_8));
+
+        if ("service_account".equals(type)) {
+            return ServiceAccountCredentials.fromStream(credentialStream);
+        } else if ("authorized_user".equals(type)) {
+            return UserCredentials.fromStream(credentialStream);
+        } else if (Strings.isNullOrEmpty(type)) {
+            throw new IOException(
+                    "Invalid credential JSON: missing 'type' field");
+        } else {
+            throw new IOException(
+                    "Unsupported credential type: " + type +
+                    ". Supported types: service_account, authorized_user");
+        }
     }
 
     @Override
