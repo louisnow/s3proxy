@@ -40,6 +40,7 @@ import com.google.auth.oauth2.UserCredentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.WriteChannel;
+import com.google.cloud.storage.Acl;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -129,9 +130,6 @@ public final class GcsBlobStore extends BaseBlobStore {
 
     private final Storage storage;
     private final String projectId;
-    // Track container access (since GCS IAM is complex, use in-memory state)
-    private final java.util.concurrent.ConcurrentHashMap<String, ContainerAccess>
-            containerAccessMap = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Inject
     GcsBlobStore(BlobStoreContext context, BlobUtils blobUtils,
@@ -176,7 +174,7 @@ public final class GcsBlobStore extends BaseBlobStore {
     /**
      * Load credentials from JSON string using type-specific methods.
      * This avoids security risks from the generic GoogleCredentials.fromStream()
-     * which could load unexpected credential types. 
+     * which could load unexpected credential types.
      * See https://github.com/googleapis/java-storage/pull/3339
      *
      * @param jsonCredential JSON string containing the credential
@@ -681,16 +679,23 @@ public final class GcsBlobStore extends BaseBlobStore {
 
     @Override
     public ContainerAccess getContainerAccess(String container) {
-        // GCS with uniform bucket-level access doesn't support
-        // fine-grained ACLs - use in-memory tracking for S3 compatibility
         try {
-            Bucket bucket = storage.get(container);
-            if (bucket == null) {
-                throw new ContainerNotFoundException(container, "");
+            // Use legacy ACLs - fails with 400 if uniform bucket-level access
+            var acls = storage.listAcls(container);
+            for (Acl acl : acls) {
+                if (acl.getEntity().equals(Acl.User.ofAllUsers()) &&
+                        acl.getRole() == Acl.Role.READER) {
+                    return ContainerAccess.PUBLIC_READ;
+                }
             }
-            return containerAccessMap.getOrDefault(container,
-                    ContainerAccess.PRIVATE);
+            return ContainerAccess.PRIVATE;
         } catch (StorageException se) {
+            if (isUniformBucketLevelAccessError(se)) {
+                throw new UnsupportedOperationException(
+                        "Container access control not supported for buckets " +
+                        "with uniform bucket-level access. Disable uniform " +
+                        "access to use ACLs, or manage access via GCS IAM.");
+            }
             translateAndRethrowException(se, container, null);
             throw se;
         }
@@ -698,10 +703,34 @@ public final class GcsBlobStore extends BaseBlobStore {
 
     @Override
     public void setContainerAccess(String container, ContainerAccess access) {
-        // GCS uniform bucket-level access uses IAM policies
-        // For S3 compatibility, track access in memory
-        // Note: This doesn't modify actual GCS IAM policies
-        containerAccessMap.put(container, access);
+        try {
+            // Use legacy ACLs - fails with 400 if uniform bucket-level access
+            if (access == ContainerAccess.PUBLIC_READ) {
+                storage.createAcl(container,
+                        Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
+            } else {
+                storage.deleteAcl(container, Acl.User.ofAllUsers());
+            }
+        } catch (StorageException se) {
+            if (isUniformBucketLevelAccessError(se)) {
+                throw new UnsupportedOperationException(
+                        "Container access control not supported for buckets " +
+                        "with uniform bucket-level access. Disable uniform " +
+                        "access to use ACLs, or manage access via GCS IAM.");
+            }
+            translateAndRethrowException(se, container, null);
+            throw se;
+        }
+    }
+
+    /**
+     * Check if the error is due to uniform bucket-level access being enabled.
+     * ACL operations return 400 Bad Request on such buckets.
+     */
+    private static boolean isUniformBucketLevelAccessError(StorageException se) {
+        return se.getCode() == 400 && se.getMessage() != null &&
+                (se.getMessage().contains("uniform bucket-level access") ||
+                 se.getMessage().contains("Cannot use ACL API"));
     }
 
     @Override
